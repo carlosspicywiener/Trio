@@ -78,7 +78,7 @@
         <attribute name="isUploadedToHealth" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="isUploadedToNS" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="isUploadedToTidepool" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
-        <attribute name="smoothedGlucose" optional="YES" attributeType="Decimal" defaultValueString="0.0"/>
+        <attribute name="smoothedGlucose" optional="YES" attributeType="Decimal"/>
         <fetchIndex name="byDate">
             <fetchIndexElement property="date" type="Binary" order="ascending"/>
         </fetchIndex>
@@ -237,6 +237,7 @@
     </entity>
     <entity name="TempTargetRunStored" representedClassName="TempTargetRunStored" syncable="YES">
         <attribute name="endDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="enteredBy" optional="YES" attributeType="String"/>
         <attribute name="id" optional="YES" attributeType="UUID" defaultValueString="empy" usesScalarValueType="NO"/>
         <attribute name="isUploadedToNS" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="name" optional="YES" attributeType="String"/>
@@ -251,6 +252,7 @@
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="duration" optional="YES" attributeType="Decimal" defaultValueString="0.0"/>
         <attribute name="enabled" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="enteredBy" optional="YES" attributeType="String"/>
         <attribute name="halfBasalTarget" optional="YES" attributeType="Decimal" defaultValueString="0.0"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="isPreset" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>

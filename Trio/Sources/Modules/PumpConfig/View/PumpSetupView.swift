@@ -1,6 +1,7 @@
 import DanaKit
 import LoopKit
 import LoopKitUI
+import MedtrumKit
 import MinimedKit
 import MinimedKitUI
 import MockKit
@@ -8,6 +9,7 @@ import MockKitUI
 import OmniBLE
 import OmniKit
 import OmniKitUI
+import OmnipodKit
 import SwiftUI
 import UIKit
 
@@ -59,8 +61,26 @@ extension PumpConfig {
                     allowDebugFeatures: true,
                     allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
                 )
+            case .omni:
+                setupViewController = OmniPumpManager.setupViewController(
+                    initialSettings: initialSettings,
+                    bluetoothProvider: bluetoothManager,
+                    colorPalette: .default,
+                    allowDebugFeatures: true,
+                    prefersToSkipUserInteraction: false,
+                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
+                )
             case .dana:
                 setupViewController = DanaKitPumpManager.setupViewController(
+                    initialSettings: initialSettings,
+                    bluetoothProvider: bluetoothManager,
+                    colorPalette: .default,
+                    allowDebugFeatures: true,
+                    prefersToSkipUserInteraction: false,
+                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
+                )
+            case .medtrum:
+                setupViewController = MedtrumPumpManager.setupViewController(
                     initialSettings: initialSettings,
                     bluetoothProvider: bluetoothManager,
                     colorPalette: .default,

@@ -18,6 +18,7 @@ protocol APSManager {
     var lastLoopDateSubject: PassthroughSubject<Date, Never> { get }
     var bolusProgress: CurrentValueSubject<Decimal?, Never> { get }
     var pumpExpiresAtDate: CurrentValueSubject<Date?, Never> { get }
+    var pumpActivatedAtDate: CurrentValueSubject<Date?, Never> { get }
     var isManualTempBasal: Bool { get }
     var isScheduledBasal: Bool? { get }
     var isSuspended: Bool { get }
@@ -127,6 +128,10 @@ final class BaseAPSManager: APSManager, Injectable {
 
     var pumpExpiresAtDate: CurrentValueSubject<Date?, Never> {
         deviceDataManager.pumpExpiresAtDate
+    }
+
+    var pumpActivatedAtDate: CurrentValueSubject<Date?, Never> {
+        deviceDataManager.pumpActivatedAtDate
     }
 
     var settings: TrioSettings {
@@ -578,11 +583,18 @@ final class BaseAPSManager: APSManager, Injectable {
         do {
             try await pump.enactBolus(units: roundedAmount, automatic: isSMB)
             debug(.apsManager, "Bolus succeeded")
-            if !isSMB {
-                try await determineBasalSync()
-            }
             bolusProgress.send(0)
             callback?(true, String(localized: "Bolus enacted successfully.", comment: "Success message for enacting a bolus"))
+            if !isSMB {
+                do {
+                    try await determineBasalSync()
+                } catch {
+                    warning(
+                        .apsManager,
+                        "determineBasalSync after manual bolus failed: \(error.localizedDescription)"
+                    )
+                }
+            }
         } catch {
             warning(.apsManager, "Bolus failed with error: \(error)")
             processError(APSError.pumpError(error))

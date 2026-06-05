@@ -120,46 +120,64 @@ import Testing
     }
 
     @Test(
-        "Exponential smoothing stops window at gaps >= 12 minutes; fallback fills smoothed glucose"
+        "Exponential smoothing stops at gaps >= 12 minutes and only updates the most recent window"
     ) func testExponentialSmoothingGapStopsWindow() async throws {
-        // GIVEN:
         let now = Date()
-        let dates: [Date] = [
-            now.addingTimeInterval(0), // oldest
-            now.addingTimeInterval(5 * 60),
-            now.addingTimeInterval(10 * 60),
-            now.addingTimeInterval(25 * 60), // gap of 15 minutes
-            now.addingTimeInterval(30 * 60),
-            now.addingTimeInterval(35 * 60) // newest
-        ]
-        let values: [Int16] = [100, 105, 110, 115, 120, 125]
+
+        var dates: [Date] = []
+        var values: [Int16] = []
+
+        // Older contiguous block (should remain untouched)
+        for i in 0 ..< 10 {
+            dates.append(now.addingTimeInterval(Double(i) * 5 * 60))
+            values.append(Int16(100 + i * 5))
+        }
+
+        // GAP (15 minutes)
+        let gapStart = now.addingTimeInterval(Double(10) * 5 * 60 + 15 * 60)
+
+        // Recent block (too small -> fallback applies only here)
+        for i in 0 ..< 3 {
+            dates.append(gapStart.addingTimeInterval(Double(i) * 5 * 60))
+            values.append(Int16(200 + i * 5))
+        }
+
         await createGlucoseSequence(values: values, dates: dates, isManual: false)
 
-        // WHEN
         await fetchGlucoseManager.exponentialSmoothingGlucose(context: testContext)
 
-        // THEN
         let ascending = try await fetchAndSortGlucose()
-        #expect(ascending.count == 6)
+        #expect(ascending.count == values.count)
 
-        let smoothedValues = ascending
-            .filter { !$0.isManual }
-            .compactMap { $0.smoothedGlucose?.decimalValue }
-            .filter { $0 > 0 }
+        // Split into:
+        // - older block (before gap)
+        // - recent block (after gap)
+        let olderBlock = ascending.prefix(10)
+        let recentBlock = ascending.suffix(3)
 
-        #expect(
-            smoothedValues.count == 6,
-            "Fallback path should fill smoothedGlucose for all CGM entries when the gap reduces the window below minimum size."
-        )
+        // --- ASSERT 1: Older values should NOT be overwritten ---
+        for (index, obj) in olderBlock.enumerated() {
+            #expect(
+                obj.smoothedGlucose == nil,
+                "Older value at index \(index) should remain untouched (no fallback overwrite)."
+            )
+        }
 
-        for (index, smoothed) in smoothedValues.enumerated() {
+        // --- ASSERT 2: Recent values should be filled by fallback ---
+        for (index, obj) in recentBlock.enumerated() {
+            guard let smoothed = obj.smoothedGlucose?.decimalValue else {
+                #expect(false, "Recent value at index \(index) should have smoothedGlucose set.")
+                continue
+            }
+
             #expect(
                 smoothed >= 39,
-                "Fallback smoothed glucose must be clamped to >= 39, got \(smoothed) at index \(index)."
+                "Fallback smoothed glucose must be clamped to >= 39, got \(smoothed)."
             )
+
             #expect(
                 smoothed == smoothed.rounded(toPlaces: 0),
-                "Fallback smoothed glucose must be rounded to an integer, got \(smoothed) at index \(index)."
+                "Fallback smoothed glucose must be rounded to integer, got \(smoothed)."
             )
         }
     }
@@ -197,6 +215,73 @@ import Testing
                 "Smoothed glucose must be rounded to an integer, got \(smoothed) at index \(index)."
             )
         }
+    }
+
+    // MARK: - fetchGlucose Window Tests
+
+    @Test(
+        "fetchGlucose retains the most recent 350 readings (not the oldest) when 24h holds more than 350"
+    ) func testFetchGlucoseKeepsMostRecentWhenOverLimit() async throws {
+        // GIVEN: 360 readings within the last 24h (3 min spacing => ~18h span).
+        // Each reading carries a unique glucose value so we can verify which subset survives the limit.
+        let count = 360
+        let values: [Int16] = (0 ..< count).map { Int16(100 + $0) }
+        await createGlucoseSequence(values: values, interval: 3 * 60, isManual: false)
+
+        // WHEN
+        let objectIDs = try await fetchGlucoseManager.fetchGlucose(context: testContext)
+
+        // THEN
+        #expect(objectIDs.count == 350, "fetchGlucose should respect the 350 limit, got \(objectIDs.count).")
+
+        await testContext.perform {
+            let fetched = objectIDs.compactMap { self.testContext.object(with: $0) as? GlucoseStored }
+            #expect(fetched.count == 350, "All returned object IDs must resolve to GlucoseStored instances.")
+
+            // Returned order must be oldest-first (chronological) — the smoother walks the array this way.
+            let dates = fetched.compactMap(\.date)
+            #expect(dates == dates.sorted(), "fetchGlucose must return readings in chronological (ascending) order.")
+
+            // The most recent reading (current BG) must be the LAST element after the chronological reverse.
+            #expect(
+                fetched.last?.glucose == Int16(100 + count - 1),
+                "Most recent reading (current BG) must be retained after the 350-limit truncation."
+            )
+
+            // The oldest 10 readings must be dropped — verify the limit cut from the OLD end, not the recent end.
+            let returnedGlucoseValues = Set(fetched.map(\.glucose))
+            #expect(
+                !returnedGlucoseValues.contains(Int16(100)),
+                "Oldest reading must be excluded by the limit (truncation should cut old, not recent)."
+            )
+            #expect(
+                returnedGlucoseValues.contains(Int16(100 + count - 1)),
+                "Newest reading must be included after truncation."
+            )
+        }
+    }
+
+    @Test(
+        "Exponential smoothing writes a smoothed value for the current BG when 24h holds more than 350 readings"
+    ) func testExponentialSmoothingCoversCurrentBGAboveLimit() async throws {
+        // GIVEN: 360 contiguous CGM readings within the last 24h (3 min spacing, no gaps).
+        let count = 360
+        let values: [Int16] = (0 ..< count).map { _ in Int16(120) }
+        await createGlucoseSequence(values: values, interval: 3 * 60, isManual: false)
+
+        // WHEN
+        await fetchGlucoseManager.exponentialSmoothingGlucose(context: testContext)
+
+        // THEN: the most recent reading must have received a smoothed value.
+        // Regression test for the bug where ascending+fetchLimit kept the OLDEST 350 readings,
+        // so the current BG fell outside the smoothing window and was never written.
+        let ascending = try await fetchAndSortGlucose()
+        #expect(ascending.count == count)
+
+        #expect(
+            ascending.last?.smoothedGlucose != nil,
+            "Most recent reading (current BG) must receive a smoothed value when over the 350-row limit."
+        )
     }
 
     // MARK: - OpenAPS Glucose Selection Tests
